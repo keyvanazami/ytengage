@@ -14,7 +14,8 @@ in the environment or in a .env file next to this script (see .env.example);
 otherwise it falls back to a transcript-based cloze question so the app works
 with zero setup. No third-party packages required.
 
-Run:  python3 server.py [port]     (default port 8000)
+Run:   python3 server.py [port]          (default port 8000)
+Debug: python3 server.py --test <videoId>   # prints per-strategy transcript results
 """
 
 import base64
@@ -28,7 +29,7 @@ import urllib.request
 from collections import Counter
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8000
 
 
 def load_dotenv(path=None):
@@ -105,18 +106,35 @@ def _walk(node, key):
             yield from _walk(item, key)
 
 
-def _transcript_via_get_transcript(video_id):
-    """Primary: the same endpoint the YouTube web UI uses for its transcript
-    panel. Not subject to the proof-of-origin token requirement that breaks
-    timedtext caption URLs."""
-    # params = protobuf field 1 (bytes) = videoId, base64-encoded
-    params = base64.b64encode(
-        b"\x0a" + bytes([len(video_id)]) + video_id.encode()
-    ).decode()
-    data = _http_json(
-        INNERTUBE_TRANSCRIPT_URL,
-        payload={"context": WEB_CONTEXT, "params": params},
+def _extract(pattern, text):
+    match = re.search(pattern, text) if text else None
+    return match.group(1) if match else None
+
+
+def _json_unescape(s):
+    """Unescape a string captured from inline JSON (\\u003d etc.)."""
+    try:
+        return json.loads(f'"{s}"')
+    except Exception:
+        return s
+
+
+def _fetch_watch_page(video_id):
+    return _http_raw(
+        f"https://www.youtube.com/watch?v={video_id}&hl=en&bpctr=9999999999",
         headers=WEB_HEADERS,
+        timeout=20,
+    )
+
+
+def _call_get_transcript(params, api_key, client_version):
+    """POST to the endpoint the YouTube web UI's transcript panel uses."""
+    url = INNERTUBE_TRANSCRIPT_URL + (f"&key={api_key}" if api_key else "")
+    context = {
+        "client": {"clientName": "WEB", "clientVersion": client_version, "hl": "en"}
+    }
+    data = _http_json(
+        url, payload={"context": context, "params": params}, headers=WEB_HEADERS
     )
     segments = []
     for seg_list in _walk(data, "transcriptSegmentListRenderer"):
@@ -137,6 +155,13 @@ def _transcript_via_get_transcript(video_id):
     if not segments:
         raise RuntimeError("get_transcript returned no segments")
     return segments, "unknown"
+
+
+def _synthetic_transcript_params(video_id):
+    # protobuf field 1 (bytes) = videoId, base64-encoded
+    return base64.b64encode(
+        b"\x0a" + bytes([len(video_id)]) + video_id.encode()
+    ).decode()
 
 
 def _segments_from_caption_tracks(tracks):
@@ -182,39 +207,78 @@ def _transcript_via_player_api(video_id):
     return _segments_from_caption_tracks(tracks)
 
 
-def _transcript_via_watch_page(video_id):
-    """Last resort: scrape captionTracks out of the watch page HTML."""
-    html = _http_raw(
-        f"https://www.youtube.com/watch?v={video_id}&hl=en", headers=WEB_HEADERS
-    )
-    match = re.search(r'"captionTracks":(\[.*?\])(?=,\s*")', html)
+def _caption_tracks_from_html(html):
+    match = re.search(r'"captionTracks":(\[.*?\])(?=,\s*")', html or "")
     if not match:
         raise RuntimeError("watch page: no captionTracks found")
-    tracks = json.loads(match.group(1))
-    return _segments_from_caption_tracks(tracks)
+    return json.loads(match.group(1))
 
 
 def fetch_transcript(video_id):
-    """Return {"text", "segments", "language"} or raise RuntimeError."""
+    """Return {"text", "segments", "language"} or raise RuntimeError.
+
+    Strategy order (all keyless):
+      1. get_transcript with the real params blob + API key extracted from
+         the watch page — mirrors exactly what the YouTube web UI does
+      2. get_transcript with synthetic params (works when the page couldn't
+         be parsed)
+      3. captionTracks from the watch page -> timedtext
+      4. InnerTube player API -> captionTracks -> timedtext
+    """
     if not re.fullmatch(r"[A-Za-z0-9_-]{5,20}", video_id):
         raise RuntimeError("invalid video id")
 
     errors = []
-    for strategy in (
-        _transcript_via_get_transcript,
-        _transcript_via_player_api,
-        _transcript_via_watch_page,
+
+    html = None
+    try:
+        html = _fetch_watch_page(video_id)
+    except Exception as exc:
+        errors.append(f"watch_page_fetch: {exc}")
+        print(f"[transcript] {video_id} watch page fetch failed: {exc}")
+
+    api_key = _extract(r'"INNERTUBE_API_KEY":"([^"]+)"', html)
+    client_version = (
+        _extract(r'"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"', html)
+        or "2.20250101.00.00"
+    )
+    page_params = _extract(r'"getTranscriptEndpoint":\s*\{"params":"([^"]+)"', html)
+    if page_params:
+        page_params = _json_unescape(page_params)
+
+    def via_page_params():
+        if not page_params:
+            raise RuntimeError("no getTranscriptEndpoint params on watch page")
+        return _call_get_transcript(page_params, api_key, client_version)
+
+    def via_synthetic_params():
+        return _call_get_transcript(
+            _synthetic_transcript_params(video_id), api_key, client_version
+        )
+
+    def via_page_captions():
+        return _segments_from_caption_tracks(_caption_tracks_from_html(html))
+
+    def via_player_api():
+        return _transcript_via_player_api(video_id)
+
+    for name, strategy in (
+        ("get_transcript(page params)", via_page_params),
+        ("get_transcript(synthetic params)", via_synthetic_params),
+        ("watch page captionTracks", via_page_captions),
+        ("player API captionTracks", via_player_api),
     ):
         try:
-            segments, language = strategy(video_id)
+            segments, language = strategy()
+            print(f"[transcript] {video_id} OK via {name} ({len(segments)} segments)")
             return {
                 "text": " ".join(s["text"] for s in segments),
                 "segments": segments,
                 "language": language,
             }
         except Exception as exc:
-            errors.append(f"{strategy.__name__}: {exc}")
-            print(f"[transcript] {video_id} {strategy.__name__} failed: {exc}")
+            errors.append(f"{name}: {exc}")
+            print(f"[transcript] {video_id} {name} failed: {exc}")
 
     raise RuntimeError("; ".join(errors))
 
@@ -435,6 +499,23 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if "--test" in sys.argv:
+        # Diagnostic mode: python3 server.py --test <videoId>
+        idx = sys.argv.index("--test")
+        vid = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "jNQXAC9IVRw"
+        print(f"Testing transcript fetch for {vid} ...")
+        try:
+            result = fetch_transcript(vid)
+            print(
+                f"\nSUCCESS — {len(result['segments'])} segments, "
+                f"language={result['language']}"
+            )
+            print("First 300 chars:", result["text"][:300])
+        except Exception as exc:
+            print(f"\nFAILED — {exc}")
+            sys.exit(1)
+        sys.exit(0)
+
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"YTEngage running at http://localhost:{PORT}")
     if GEMINI_API_KEY:
