@@ -19,6 +19,7 @@ Debug: python3 server.py --test <videoId>   # prints per-strategy transcript res
 """
 
 import base64
+import http.cookiejar
 import json
 import os
 import random
@@ -66,9 +67,30 @@ WEB_UA = (
 WEB_HEADERS = {
     "User-Agent": WEB_UA,
     "Accept-Language": "en-US,en;q=0.9",
-    # Skips the EU consent interstitial, which otherwise hides player data
-    "Cookie": "CONSENT=YES+cb; SOCS=CAI",
 }
+
+# One shared session: cookies set by the watch page (visitor tokens etc.) are
+# replayed on the InnerTube/timedtext calls, like a real browser session.
+_cookie_jar = http.cookiejar.CookieJar()
+_opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(_cookie_jar)
+)
+
+
+def _seed_cookie(name, value):
+    _cookie_jar.set_cookie(
+        http.cookiejar.Cookie(
+            version=0, name=name, value=value, port=None, port_specified=False,
+            domain=".youtube.com", domain_specified=True, domain_initial_dot=True,
+            path="/", path_specified=True, secure=True, expires=None,
+            discard=False, comment=None, comment_url=None, rest={},
+        )
+    )
+
+
+# Skips the EU consent interstitial, which otherwise hides player data
+_seed_cookie("CONSENT", "YES+cb")
+_seed_cookie("SOCS", "CAI")
 WEB_CONTEXT = {
     "client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en"}
 }
@@ -91,7 +113,7 @@ def _http_raw(url, payload=None, headers=None, timeout=15):
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _opener.open(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         # Include the response body — API errors explain themselves there
@@ -253,6 +275,38 @@ def _transcript_via_player_api(video_id):
     return _segments_from_caption_tracks(tracks)
 
 
+def _transcript_via_library(video_id):
+    """Preferred when installed: the actively-maintained youtube-transcript-api
+    package, which keeps up with YouTube's anti-bot changes.
+
+        pip install youtube-transcript-api
+    """
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError:
+        raise RuntimeError(
+            "youtube-transcript-api not installed "
+            "(pip install youtube-transcript-api)"
+        )
+
+    try:  # v1.x API
+        api = YouTubeTranscriptApi()
+        try:
+            fetched = api.fetch(video_id)  # defaults to English
+        except Exception:
+            # No English transcript — take the first available language
+            fetched = next(iter(api.list(video_id))).fetch()
+        segments = [{"start": s.start, "text": s.text} for s in fetched]
+        language = getattr(fetched, "language_code", "unknown")
+    except AttributeError:  # v0.x API
+        data = YouTubeTranscriptApi.get_transcript(video_id)
+        segments = [{"start": d["start"], "text": d["text"]} for d in data]
+        language = "unknown"
+    if not segments:
+        raise RuntimeError("library returned no segments")
+    return segments, language
+
+
 def _caption_tracks_from_html(html):
     match = re.search(r'"captionTracks":(\[.*?\])(?=,\s*")', html or "")
     if not match:
@@ -275,6 +329,22 @@ def fetch_transcript(video_id):
         raise RuntimeError("invalid video id")
 
     errors = []
+
+    # Strategy 0: the maintained library, when installed
+    try:
+        segments, language = _transcript_via_library(video_id)
+        print(
+            f"[transcript] {video_id} OK via youtube-transcript-api "
+            f"({len(segments)} segments)"
+        )
+        return {
+            "text": " ".join(s["text"] for s in segments),
+            "segments": segments,
+            "language": language,
+        }
+    except Exception as exc:
+        errors.append(f"youtube-transcript-api: {exc}")
+        print(f"[transcript] {video_id} youtube-transcript-api failed: {exc}")
 
     html = None
     try:
@@ -583,5 +653,14 @@ if __name__ == "__main__":
         print(
             "Question generation: heuristic fallback "
             "(set GEMINI_API_KEY for Gemini-written questions)"
+        )
+    try:
+        import youtube_transcript_api  # noqa: F401
+
+        print("Transcripts: youtube-transcript-api (recommended) + keyless fallbacks")
+    except ImportError:
+        print(
+            "Transcripts: keyless fallbacks only — for best reliability run: "
+            "pip install youtube-transcript-api"
         )
     server.serve_forever()

@@ -13,6 +13,10 @@ No build step and no packages to install — Python 3 standard library only.
 # One-time: put your Gemini key in a .env file (gitignored)
 cp .env.example .env    # then edit .env and paste your key
 
+# Recommended: makes transcript fetching reliable against YouTube's
+# anti-bot changes (the app still runs without it)
+pip install youtube-transcript-api
+
 python3 server.py
 ```
 
