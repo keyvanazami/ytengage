@@ -253,7 +253,7 @@ function avatarColor(name) {
 
 function loadEngagement() {
   try { return JSON.parse(localStorage.getItem(LS_KEYS.engagement)) || {}; }
-  catch { return {}; }
+  catch (err) { return {}; }
 }
 function saveEngagement(data) {
   localStorage.setItem(LS_KEYS.engagement, JSON.stringify(data));
@@ -271,7 +271,7 @@ function updateEngagement(id, patch) {
 
 function loadSubs() {
   try { return JSON.parse(localStorage.getItem(LS_KEYS.subs)) || {}; }
-  catch { return {}; }
+  catch (err) { return {}; }
 }
 function toggleSub(channel) {
   const subs = loadSubs();
@@ -424,7 +424,7 @@ function showResultsView() {
   quiz.token++; // cancel any in-flight quiz fetches
   hide(els.quizModal);
   if (state.player && state.playerReady) {
-    try { state.player.stopVideo(); } catch {}
+    try { state.player.stopVideo(); } catch (err) {}
   }
   window.scrollTo(0, 0);
 }
@@ -737,9 +737,10 @@ function wireEvents() {
   els.shareBtn.addEventListener("click", async () => {
     const url = `https://www.youtube.com/watch?v=${state.currentVideo.id}`;
     try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(url);
       toast("Link copied to clipboard");
-    } catch {
+    } catch (err) {
       toast(url);
     }
   });
