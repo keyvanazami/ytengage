@@ -494,7 +494,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def log_message(self, fmt, *args):
-        if "/api/" in (args[0] if args else ""):
+        # Only log API traffic, quietly dropping static-file noise. args can
+        # contain non-strings (e.g. an int status code from log_error).
+        if any("/api/" in str(a) for a in args):
             super().log_message(fmt, *args)
 
 
