@@ -73,6 +73,89 @@ const DEMO_VIDEOS = [
   },
 ];
 
+// Hand-written "before you watch" questions for the demo catalog, so the
+// quiz flow works with no server and no network access.
+const DEMO_QUESTIONS = {
+  jNQXAC9IVRw: {
+    kind: "misconception",
+    question:
+      "The very first YouTube video ever uploaded was about which of these?",
+    options: [
+      "A music video",
+      "Elephants at the zoo",
+      "A tech product demo",
+      "A cat playing piano",
+    ],
+    correct_index: 1,
+    explanation:
+      "Many people assume YouTube launched with music or cat videos — but the first upload, by co-founder Jawed Karim in April 2005, is 19 seconds of elephants at the San Diego Zoo.",
+  },
+  "aqz-KE-bpKQ": {
+    kind: "misconception",
+    question: "Why did the Blender Foundation make Big Buck Bunny?",
+    options: [
+      "As a paid streaming release",
+      "To advertise a game",
+      "To prove open-source software can make pro films",
+      "As a school project",
+    ],
+    correct_index: 2,
+    explanation:
+      "Big Buck Bunny is an 'open movie': made entirely with free, open-source tools to push Blender's development — and released free for anyone to use.",
+  },
+  eRsGyueVLvQ: {
+    kind: "prediction",
+    question:
+      "Sintel is named after something in the film. What do you predict it is?",
+    options: [
+      "The dragon she raises",
+      "The main character herself",
+      "The city where it begins",
+      "Her sword",
+    ],
+    correct_index: 1,
+    explanation:
+      "Sintel is the protagonist's name — but her bond with the baby dragon Scales is the heart of the story. Watch for the twist ending.",
+  },
+  R6MlUcmOul8: {
+    kind: "prediction",
+    question:
+      "In Caminandes 3, a llama battles a rival over food. Who is the rival?",
+    options: ["A penguin", "Another llama", "A park ranger", "A fox"],
+    correct_index: 0,
+    explanation:
+      "Koro the llama faces off against a very determined penguin. Three minutes of Patagonian slapstick — see who wins.",
+  },
+  WhWc3b3KhnY: {
+    kind: "challenge",
+    question:
+      "Spring was made entirely with open-source tools. How large do you think the core team was?",
+    options: [
+      "About 8 people",
+      "Around 50 people",
+      "Over 200 people",
+      "One person",
+    ],
+    correct_index: 0,
+    explanation:
+      "A team of roughly eight artists and developers made this studio-quality short — a showcase of what tiny teams can do with Blender.",
+  },
+  _cMxraX_5RE: {
+    kind: "prediction",
+    question:
+      "Coffee Run plays out inside something unusual. What do you predict frames the story?",
+    options: [
+      "A single cup of coffee being drunk",
+      "A video game speedrun",
+      "A dream sequence",
+      "A phone screen",
+    ],
+    correct_index: 0,
+    explanation:
+      "The whole film unfolds during one coffee — a literal 'coffee run' through bittersweet memories. Watch how the ending lands.",
+  },
+};
+
 const SUGGESTED_CHIPS = [
   "All",
   "Lo-fi beats",
@@ -114,6 +197,16 @@ const els = {
   settingsModal: $("settingsModal"),
   apiKeyInput: $("apiKeyInput"),
   toast: $("toast"),
+  quizModal: $("quizModal"),
+  quizKind: $("quizKind"),
+  quizLoading: $("quizLoading"),
+  quizLoadingText: $("quizLoadingText"),
+  quizBody: $("quizBody"),
+  quizQuestion: $("quizQuestion"),
+  quizOptions: $("quizOptions"),
+  quizFeedback: $("quizFeedback"),
+  quizSkipBtn: $("quizSkipBtn"),
+  quizPlayBtn: $("quizPlayBtn"),
 };
 
 function show(el) { el.classList.remove("hidden"); }
@@ -328,6 +421,8 @@ function renderChips(activeLabel) {
 function showResultsView() {
   show(els.resultsView);
   hide(els.watchView);
+  quiz.token++; // cancel any in-flight quiz fetches
+  hide(els.quizModal);
   if (state.player && state.playerReady) {
     try { state.player.stopVideo(); } catch {}
   }
@@ -382,7 +477,7 @@ function playVideo(id) {
 function openVideo(video) {
   state.currentVideo = video;
   showWatchView();
-  playVideo(video.id);
+  startPreWatchQuiz(video); // playback starts after the quiz (or skip)
 
   els.watchTitle.textContent = video.title;
   els.watchChannel.textContent = video.channel;
@@ -395,6 +490,131 @@ function openVideo(video) {
   renderEngagement();
   renderComments();
   renderUpNext();
+}
+
+// ---------- Before-you-watch quiz ----------
+
+const KIND_LABELS = {
+  misconception: "Common misconception",
+  challenge: "Challenge",
+  prediction: "Make a prediction",
+};
+
+const quiz = { video: null, question: null, answered: false, token: 0 };
+
+function startPreWatchQuiz(video) {
+  quiz.video = video;
+  quiz.question = null;
+  quiz.answered = false;
+  const token = ++quiz.token; // invalidates stale fetches if user moves on
+
+  // Reset modal to loading state
+  els.quizKind.textContent = "Before you watch";
+  show(els.quizLoading);
+  hide(els.quizBody);
+  hide(els.quizFeedback);
+  hide(els.quizPlayBtn);
+  show(els.quizSkipBtn);
+  els.quizSkipBtn.textContent = "Skip & play";
+  els.quizLoadingText.textContent = "Reading the transcript…";
+  show(els.quizModal);
+
+  const canned = DEMO_QUESTIONS[video.id];
+  if (canned) {
+    // Small delay so the flow reads naturally in demo mode
+    setTimeout(() => {
+      if (token === quiz.token) showQuizQuestion(canned);
+    }, 600);
+    return;
+  }
+
+  buildQuestionFromTranscript(video, token)
+    .then((question) => {
+      if (token !== quiz.token) return;
+      if (question) showQuizQuestion(question);
+      else dismissQuiz("No transcript available for this video — enjoy!");
+    })
+    .catch(() => {
+      if (token !== quiz.token) return;
+      dismissQuiz("Couldn't build a question for this one — enjoy!");
+    });
+}
+
+async function buildQuestionFromTranscript(video, token) {
+  const tRes = await fetch(`/api/transcript?v=${encodeURIComponent(video.id)}`);
+  if (!tRes.ok) return null;
+  const transcript = await tRes.json();
+  if (!transcript.text || transcript.text.length < 200) return null;
+
+  if (token !== quiz.token) return null;
+  els.quizLoadingText.textContent = "Finding an interesting question…";
+
+  const qRes = await fetch("/api/question", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: video.title, transcript: transcript.text }),
+  });
+  if (!qRes.ok) return null;
+  const question = await qRes.json();
+  return question.options?.length === 4 ? question : null;
+}
+
+function showQuizQuestion(question) {
+  quiz.question = question;
+  els.quizKind.textContent = KIND_LABELS[question.kind] || "Before you watch";
+  els.quizQuestion.textContent = question.question;
+
+  els.quizOptions.innerHTML = "";
+  question.options.forEach((opt, i) => {
+    const btn = document.createElement("button");
+    btn.className = "quiz-option";
+    btn.textContent = opt;
+    btn.addEventListener("click", () => answerQuiz(i));
+    els.quizOptions.appendChild(btn);
+  });
+
+  hide(els.quizLoading);
+  show(els.quizBody);
+}
+
+function answerQuiz(index) {
+  if (quiz.answered) return;
+  quiz.answered = true;
+  const q = quiz.question;
+  const correct = index === q.correct_index;
+
+  const buttons = els.quizOptions.querySelectorAll(".quiz-option");
+  buttons.forEach((btn, i) => {
+    btn.disabled = true;
+    if (i === q.correct_index) btn.classList.add("correct");
+    else if (i === index) btn.classList.add("wrong");
+  });
+
+  els.quizFeedback.innerHTML =
+    `<span class="verdict ${correct ? "good" : "bad"}">` +
+    (correct ? "Nice — you got it! 🎉" : "Not quite — now you have to watch 😄") +
+    `</span>${escapeHtml(q.explanation || "")}`;
+  show(els.quizFeedback);
+
+  hide(els.quizSkipBtn);
+  show(els.quizPlayBtn);
+
+  // Persist the result as engagement data
+  const v = state.currentVideo;
+  const eng = videoEngagement(v.id);
+  updateEngagement(v.id, {
+    quizzes: [
+      ...(eng.quizzes || []),
+      { correct, kind: q.kind, at: new Date().toISOString() },
+    ],
+  });
+}
+
+function dismissQuiz(message) {
+  quiz.token++;
+  hide(els.quizModal);
+  if (message) toast(message);
+  if (state.currentVideo) playVideo(state.currentVideo.id);
 }
 
 function renderEngagement() {
@@ -539,6 +759,10 @@ function wireEvents() {
     els.commentInput.value = "";
     renderComments();
   });
+
+  // Before-you-watch quiz
+  els.quizSkipBtn.addEventListener("click", () => dismissQuiz(null));
+  els.quizPlayBtn.addEventListener("click", () => dismissQuiz(null));
 
   // Settings modal
   $("settingsBtn").addEventListener("click", () => {

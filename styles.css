@@ -455,6 +455,78 @@ svg { width: 24px; height: 24px; fill: currentColor; }
 .modal-btn.ghost { background: none; color: var(--blue); }
 .modal-btn:hover { opacity: 0.85; }
 
+/* ============ Before-you-watch quiz ============ */
+.quiz-modal { width: min(560px, 94vw); }
+
+.quiz-kind {
+  display: inline-block;
+  background: rgba(62, 166, 255, 0.15);
+  color: var(--blue);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.quiz-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+  padding: 18px 0;
+}
+.spinner-ring.small {
+  width: 22px; height: 22px;
+  border-width: 3px;
+  border: 3px solid var(--border);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.quiz-question { font-size: 16px; line-height: 1.5; margin-bottom: 16px; }
+
+.quiz-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.quiz-option {
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 11px 14px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.quiz-option:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--text-dim); }
+.quiz-option:disabled { cursor: default; opacity: 0.7; }
+.quiz-option.correct {
+  border-color: #2ba640;
+  background: rgba(43, 166, 64, 0.15);
+  opacity: 1;
+}
+.quiz-option.wrong {
+  border-color: #e53935;
+  background: rgba(229, 57, 53, 0.15);
+  opacity: 1;
+}
+
+.quiz-feedback {
+  border-left: 3px solid var(--blue);
+  background: var(--bg);
+  border-radius: 0 10px 10px 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.quiz-feedback .verdict { font-weight: 700; display: block; margin-bottom: 4px; }
+.quiz-feedback .verdict.good { color: #2ba640; }
+.quiz-feedback .verdict.bad { color: #e53935; }
+
 /* ============ Toast ============ */
 .toast {
   position: fixed;

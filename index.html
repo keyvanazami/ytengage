@@ -152,6 +152,30 @@
     </div>
   </div>
 
+  <!-- ============ Before-you-watch quiz modal ============ -->
+  <div class="modal-backdrop hidden" id="quizModal">
+    <div class="modal quiz-modal">
+      <div class="quiz-kind" id="quizKind">Before you watch</div>
+      <h2 id="quizTitle">🤔 Quick question first…</h2>
+
+      <div id="quizLoading" class="quiz-loading">
+        <div class="spinner-ring small"></div>
+        <span id="quizLoadingText">Reading the transcript…</span>
+      </div>
+
+      <div id="quizBody" class="hidden">
+        <p class="quiz-question" id="quizQuestion"></p>
+        <div class="quiz-options" id="quizOptions"></div>
+        <div class="quiz-feedback hidden" id="quizFeedback"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="modal-btn ghost" id="quizSkipBtn">Skip &amp; play</button>
+        <button class="modal-btn primary hidden" id="quizPlayBtn">▶ Play video</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast hidden" id="toast"></div>
 
   <script src="app.js"></script>

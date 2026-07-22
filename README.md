@@ -7,19 +7,32 @@ and **video playback**, plus a starter set of local engagement interactions
 
 ## Running it
 
-No build step — it's a static single-page app.
+No build step and no packages to install — Python 3 standard library only.
 
 ```bash
-# from the repo root, any static server works:
-npx serve .
-# or
-python3 -m http.server 8000
+# Full experience (transcripts + AI quiz questions):
+GEMINI_API_KEY=your-key python3 server.py
+
+# Or without a Gemini key (heuristic quiz questions instead):
+python3 server.py
 ```
 
-Then open http://localhost:8000 (or the port your server prints).
+Then open http://localhost:8000.
 
-> Opening `index.html` directly from disk mostly works too, but serving it
-> over HTTP is recommended so the YouTube IFrame player behaves consistently.
+`server.py` serves the static app plus two endpoints powering the
+"before you watch" quiz: `/api/transcript` (fetches the video's captions from
+YouTube) and `/api/question` (turns the transcript into a question).
+Any plain static server (`npx serve .`) still works too — you just lose the
+transcript-based questions for real YouTube videos; the demo catalog keeps
+its built-in questions.
+
+### Gemini API key (for AI-written questions)
+
+Set `GEMINI_API_KEY` in the environment when starting `server.py` — never
+commit it. Get one free at [Google AI Studio](https://aistudio.google.com/apikey).
+Optionally pick a model with `GEMINI_MODEL` (default: `gemini-2.5-flash`).
+Without a key, the server builds a fill-in-the-blank question from the
+transcript instead.
 
 ## Search: demo mode vs. real YouTube search
 
@@ -46,8 +59,14 @@ prototyping.
 
 - YouTube-style dark UI: top bar with search, collapsible sidebar, suggestion
   chips, responsive video grid.
-- Watch page with the official **YouTube IFrame Player** (autoplay, up-next
-  rail from the current result set).
+- Watch page with the official **YouTube IFrame Player** (up-next rail from
+  the current result set).
+- **Before-you-watch quiz**: when you open a video, the app fetches its
+  transcript, finds a misconception / challenge / prediction question
+  (Gemini-written, or heuristic without a key), and asks you before the video
+  plays. Answer or skip — then playback starts. Demo videos ship with
+  hand-written questions so this works offline. Results are stored per video
+  in `localStorage`.
 - Engagement starters, persisted in `localStorage` per video:
   - Like / dislike with counts
   - Local comments
@@ -67,6 +86,7 @@ prototyping.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | App shell and all views (grid, watch page, settings modal) |
+| `index.html` | App shell and all views (grid, watch page, quiz + settings modals) |
 | `styles.css` | YouTube-style dark theme |
-| `app.js` | Search (Data API v3 + demo fallback), player, engagement state |
+| `app.js` | Search (Data API v3 + demo fallback), player, quiz flow, engagement state |
+| `server.py` | Static server + `/api/transcript` (YouTube captions) + `/api/question` (Gemini or heuristic) |
