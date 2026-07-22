@@ -17,6 +17,7 @@ with zero setup. No third-party packages required.
 Run:  python3 server.py [port]     (default port 8000)
 """
 
+import base64
 import json
 import os
 import random
@@ -54,45 +55,143 @@ def load_dotenv(path=None):
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# Transcript fetching (YouTube InnerTube player API)
+# Transcript fetching (three strategies, most reliable first)
 # ---------------------------------------------------------------------------
 
+WEB_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+WEB_HEADERS = {
+    "User-Agent": WEB_UA,
+    "Accept-Language": "en-US,en;q=0.9",
+    # Skips the EU consent interstitial, which otherwise hides player data
+    "Cookie": "CONSENT=YES+cb; SOCS=CAI",
+}
+WEB_CONTEXT = {
+    "client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en"}
+}
+INNERTUBE_TRANSCRIPT_URL = (
+    "https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false"
+)
 INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
-
-# The ANDROID client tends to return caption tracks with directly fetchable
-# URLs; WEB is kept as a fallback.
-INNERTUBE_CLIENTS = [
-    {
-        "clientName": "ANDROID",
-        "clientVersion": "20.10.38",
-        "androidSdkVersion": 30,
-        "userAgent": "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
-    },
-    {
-        "clientName": "WEB",
-        "clientVersion": "2.20250101.00.00",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    },
-]
 
 
 def _http_json(url, payload=None, headers=None, timeout=15):
+    body = _http_raw(url, payload=payload, headers=headers, timeout=timeout)
+    if not body.strip():
+        raise RuntimeError("empty response body")
+    return json.loads(body)
+
+
+def _http_raw(url, payload=None, headers=None, timeout=15):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers=headers or {})
     if data is not None:
         req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", errors="replace"))
+        return resp.read().decode("utf-8", errors="replace")
 
 
-def _pick_caption_track(tracks):
-    """Prefer English, then anything non-auto-generated, then the first track."""
+def _walk(node, key):
+    """Yield every value for `key` anywhere in a nested JSON structure."""
+    if isinstance(node, dict):
+        if key in node:
+            yield node[key]
+        for value in node.values():
+            yield from _walk(value, key)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk(item, key)
+
+
+def _transcript_via_get_transcript(video_id):
+    """Primary: the same endpoint the YouTube web UI uses for its transcript
+    panel. Not subject to the proof-of-origin token requirement that breaks
+    timedtext caption URLs."""
+    # params = protobuf field 1 (bytes) = videoId, base64-encoded
+    params = base64.b64encode(
+        b"\x0a" + bytes([len(video_id)]) + video_id.encode()
+    ).decode()
+    data = _http_json(
+        INNERTUBE_TRANSCRIPT_URL,
+        payload={"context": WEB_CONTEXT, "params": params},
+        headers=WEB_HEADERS,
+    )
+    segments = []
+    for seg_list in _walk(data, "transcriptSegmentListRenderer"):
+        for seg in seg_list.get("initialSegments", []):
+            renderer = seg.get("transcriptSegmentRenderer")
+            if not renderer:
+                continue
+            text = "".join(
+                run.get("text", "")
+                for run in renderer.get("snippet", {}).get("runs", [])
+            ).strip()
+            if text:
+                segments.append(
+                    {"start": int(renderer.get("startMs", 0)) / 1000.0, "text": text}
+                )
+        if segments:
+            break
+    if not segments:
+        raise RuntimeError("get_transcript returned no segments")
+    return segments, "unknown"
+
+
+def _segments_from_caption_tracks(tracks):
     def score(t):
         lang = t.get("languageCode", "")
         auto = t.get("kind") == "asr"
         return (0 if lang.startswith("en") else 1, 1 if auto else 0)
 
-    return sorted(tracks, key=score)[0]
+    track = sorted(tracks, key=score)[0]
+    url = track["baseUrl"].replace("&fmt=srv3", "")
+    url += ("&" if "?" in url else "?") + "fmt=json3"
+    timed = _http_json(url, headers=WEB_HEADERS)
+    segments = []
+    for event in timed.get("events", []):
+        text = "".join(seg.get("utf8", "") for seg in event.get("segs", []))
+        text = text.replace("\n", " ").strip()
+        if text:
+            segments.append(
+                {"start": event.get("tStartMs", 0) / 1000.0, "text": text}
+            )
+    if not segments:
+        raise RuntimeError("caption track was empty")
+    return segments, track.get("languageCode", "unknown")
+
+
+def _transcript_via_player_api(video_id):
+    """Fallback: InnerTube player API -> captionTracks -> timedtext."""
+    player = _http_json(
+        INNERTUBE_PLAYER_URL,
+        payload={"context": WEB_CONTEXT, "videoId": video_id},
+        headers=WEB_HEADERS,
+    )
+    status = player.get("playabilityStatus", {}).get("status", "OK")
+    if status not in ("OK", "CONTENT_CHECK_REQUIRED"):
+        raise RuntimeError(f"player API status {status}")
+    tracks = (
+        player.get("captions", {})
+        .get("playerCaptionsTracklistRenderer", {})
+        .get("captionTracks", [])
+    )
+    if not tracks:
+        raise RuntimeError("player API: video has no caption tracks")
+    return _segments_from_caption_tracks(tracks)
+
+
+def _transcript_via_watch_page(video_id):
+    """Last resort: scrape captionTracks out of the watch page HTML."""
+    html = _http_raw(
+        f"https://www.youtube.com/watch?v={video_id}&hl=en", headers=WEB_HEADERS
+    )
+    match = re.search(r'"captionTracks":(\[.*?\])(?=,\s*")', html)
+    if not match:
+        raise RuntimeError("watch page: no captionTracks found")
+    tracks = json.loads(match.group(1))
+    return _segments_from_caption_tracks(tracks)
 
 
 def fetch_transcript(video_id):
@@ -100,55 +199,24 @@ def fetch_transcript(video_id):
     if not re.fullmatch(r"[A-Za-z0-9_-]{5,20}", video_id):
         raise RuntimeError("invalid video id")
 
-    last_error = "no caption tracks found"
-    for client in INNERTUBE_CLIENTS:
+    errors = []
+    for strategy in (
+        _transcript_via_get_transcript,
+        _transcript_via_player_api,
+        _transcript_via_watch_page,
+    ):
         try:
-            body = {
-                "videoId": video_id,
-                "context": {
-                    "client": {k: v for k, v in client.items() if k != "userAgent"}
-                },
-            }
-            player = _http_json(
-                INNERTUBE_PLAYER_URL,
-                payload=body,
-                headers={"User-Agent": client["userAgent"]},
-            )
-            tracks = (
-                player.get("captions", {})
-                .get("playerCaptionsTracklistRenderer", {})
-                .get("captionTracks", [])
-            )
-            if not tracks:
-                last_error = "video has no captions/transcript"
-                continue
-
-            track = _pick_caption_track(tracks)
-            url = track["baseUrl"]
-            url += ("&" if "?" in url else "?") + "fmt=json3"
-            timed = _http_json(url, headers={"User-Agent": client["userAgent"]})
-
-            segments = []
-            for event in timed.get("events", []):
-                text = "".join(seg.get("utf8", "") for seg in event.get("segs", []))
-                text = text.replace("\n", " ").strip()
-                if text:
-                    segments.append(
-                        {"start": event.get("tStartMs", 0) / 1000.0, "text": text}
-                    )
-            if not segments:
-                last_error = "caption track was empty"
-                continue
-
+            segments, language = strategy(video_id)
             return {
                 "text": " ".join(s["text"] for s in segments),
                 "segments": segments,
-                "language": track.get("languageCode", "unknown"),
+                "language": language,
             }
-        except Exception as exc:  # try the next client before giving up
-            last_error = str(exc)
+        except Exception as exc:
+            errors.append(f"{strategy.__name__}: {exc}")
+            print(f"[transcript] {video_id} {strategy.__name__} failed: {exc}")
 
-    raise RuntimeError(last_error)
+    raise RuntimeError("; ".join(errors))
 
 
 # ---------------------------------------------------------------------------

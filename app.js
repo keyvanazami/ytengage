@@ -542,8 +542,11 @@ function startPreWatchQuiz(video) {
 
 async function buildQuestionFromTranscript(video, token) {
   const tRes = await fetch(`/api/transcript?v=${encodeURIComponent(video.id)}`);
-  if (!tRes.ok) return null;
-  const transcript = await tRes.json();
+  const transcript = await tRes.json().catch(() => ({}));
+  if (!tRes.ok) {
+    console.warn("transcript fetch failed:", transcript.error);
+    return null;
+  }
   if (!transcript.text || transcript.text.length < 200) return null;
 
   if (token !== quiz.token) return null;
