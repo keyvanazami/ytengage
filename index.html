@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YTEngage — YouTube Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='5' fill='%23ff0000'/><path d='M9.5 7.5v9l8-4.5z' fill='white'/></svg>" />
+</head>
+<body>
+  <!-- ============ Top bar ============ -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="menuBtn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+      </button>
+      <a class="logo" href="#" id="logoLink">
+        <svg viewBox="0 0 24 24" class="logo-icon"><rect width="24" height="24" rx="5" fill="#f00"/><path d="M9.5 7.5v9l8-4.5z" fill="#fff"/></svg>
+        <span class="logo-text">YTEngage</span>
+      </a>
+    </div>
+
+    <div class="topbar-center">
+      <form class="search-form" id="searchForm">
+        <input
+          type="text"
+          id="searchInput"
+          class="search-input"
+          placeholder="Search"
+          autocomplete="off"
+          aria-label="Search videos"
+        />
+        <button type="submit" class="search-btn" title="Search" aria-label="Search">
+          <svg viewBox="0 0 24 24"><path d="M20.87 20.17l-5.59-5.59A6.96 6.96 0 0 0 16.5 10.5C16.5 6.91 13.59 4 10 4S3.5 6.91 3.5 10.5 6.41 17 10 17c1.55 0 2.98-.55 4.08-1.46l5.59 5.59.7-.7-.5-.26zM10 16c-3.03 0-5.5-2.47-5.5-5.5S6.97 5 10 5s5.5 2.47 5.5 5.5S13.03 16 10 16z"/></svg>
+        </button>
+      </form>
+    </div>
+
+    <div class="topbar-right">
+      <button class="icon-btn" id="settingsBtn" title="Settings (API key)" aria-label="Settings">
+        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+      </button>
+      <div class="avatar" title="You">K</div>
+    </div>
+  </header>
+
+  <!-- ============ Layout: sidebar + main ============ -->
+  <div class="layout">
+    <nav class="sidebar" id="sidebar">
+      <button class="side-item active" data-nav="home">
+        <svg viewBox="0 0 24 24"><path d="M12 4.33l7 6.12V20h-4v-6H9v6H5v-9.55l7-6.12M12 3L4 10v11h6v-6h4v6h6V10l-8-7z"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="side-item" data-nav="trending">
+        <svg viewBox="0 0 24 24"><path d="M17.53 11.2c-.23-.3-.5-.56-.76-.82-.65-.6-1.4-1.03-2.03-1.66-1.46-1.46-1.78-3.87-.85-5.72-.93.23-1.75.75-2.45 1.32C8.9 6.4 7.9 10.07 9.1 13.22c.04.1.08.2.08.33 0 .22-.15.42-.35.5-.22.1-.46.04-.64-.12a.83.83 0 0 1-.15-.17c-1.1-1.43-1.28-3.48-.53-5.12C5.87 10 5 12.3 5.14 14.47c.04.5.1 1 .27 1.5.14.6.4 1.2.72 1.73 1.04 1.73 2.87 2.97 4.84 3.22 2.1.27 4.35-.12 5.96-1.6 1.8-1.66 2.45-4.3 1.5-6.6l-.13-.26c-.2-.46-.47-.87-.77-1.26z"/></svg>
+        <span>Trending</span>
+      </button>
+      <button class="side-item" data-nav="demo">
+        <svg viewBox="0 0 24 24"><path d="M10 8l6 4-6 4V8zm11-5H3v18h18V3zm-1 17H4V4h16v16z"/></svg>
+        <span>Demo picks</span>
+      </button>
+      <div class="side-divider"></div>
+      <div class="side-note">
+        Engagement features<br/>coming next:<br/>reactions, polls,<br/>timed comments&nbsp;💡
+      </div>
+    </nav>
+
+    <main class="main" id="main">
+      <!-- Results / home view -->
+      <section id="resultsView" class="results-view">
+        <div class="chips" id="chipsRow"></div>
+        <div class="notice hidden" id="notice"></div>
+        <div class="video-grid" id="videoGrid"></div>
+        <div class="spinner hidden" id="spinner"><div class="spinner-ring"></div></div>
+      </section>
+
+      <!-- Watch view -->
+      <section id="watchView" class="watch-view hidden">
+        <div class="watch-primary">
+          <div class="player-wrap">
+            <div id="player"></div>
+          </div>
+          <h1 class="watch-title" id="watchTitle"></h1>
+          <div class="watch-meta-row">
+            <div class="channel-block">
+              <div class="channel-avatar" id="watchChannelAvatar"></div>
+              <div class="channel-text">
+                <div class="channel-name" id="watchChannel"></div>
+                <div class="channel-sub" id="watchMeta"></div>
+              </div>
+              <button class="subscribe-btn" id="subscribeBtn">Subscribe</button>
+            </div>
+            <div class="engage-bar">
+              <div class="pill-group">
+                <button class="pill-btn" id="likeBtn" title="I like this">
+                  <svg viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11zM7 20H4v-8h3V20zM19.98 13.17l-1.34 6C18.54 19.65 18.03 20 17.43 20H8v-8.61l5.6-6.06C13.79 5.12 14.08 5 14.38 5c.26 0 .5.11.63.3.07.1.15.26.09.47l-1.52 4.94L13.18 12h1.35h4.23c.41 0 .8.17 1.03.46.12.15.25.4.19.71z"/></svg>
+                  <span id="likeCount">0</span>
+                </button>
+                <span class="pill-sep"></span>
+                <button class="pill-btn" id="dislikeBtn" title="I dislike this">
+                  <svg viewBox="0 0 24 24" style="transform:rotate(180deg)"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11zM7 20H4v-8h3V20zM19.98 13.17l-1.34 6C18.54 19.65 18.03 20 17.43 20H8v-8.61l5.6-6.06C13.79 5.12 14.08 5 14.38 5c.26 0 .5.11.63.3.07.1.15.26.09.47l-1.52 4.94L13.18 12h1.35h4.23c.41 0 .8.17 1.03.46.12.15.25.4.19.71z"/></svg>
+                </button>
+              </div>
+              <button class="pill-btn solo" id="shareBtn" title="Copy video link">
+                <svg viewBox="0 0 24 24"><path d="M15 5.63L20.66 12 15 18.37V14h-1c-3.96 0-7.14 1-9.75 3.09 1.84-4.07 5.11-6.4 9.89-7.1l.86-.13V5.63M14 3v6C6.22 10.13 3.11 15.33 2 21c2.78-3.97 6.44-6 12-6v6l8-9-8-9z"/></svg>
+                <span>Share</span>
+              </button>
+            </div>
+          </div>
+          <div class="description-box" id="watchDescription"></div>
+
+          <!-- Local comments: first taste of engagement -->
+          <div class="comments">
+            <h2 class="comments-title" id="commentsTitle">Comments</h2>
+            <form class="comment-form" id="commentForm">
+              <div class="channel-avatar small">K</div>
+              <input type="text" id="commentInput" placeholder="Add a comment (stored locally)…" autocomplete="off" />
+              <button type="submit" class="comment-submit">Comment</button>
+            </form>
+            <div id="commentList"></div>
+          </div>
+        </div>
+
+        <aside class="watch-sidebar">
+          <h3 class="uptext">Up next</h3>
+          <div id="upNextList"></div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ Settings modal ============ -->
+  <div class="modal-backdrop hidden" id="settingsModal">
+    <div class="modal">
+      <h2>Settings</h2>
+      <p class="modal-text">
+        To search real YouTube results, paste a <strong>YouTube Data API v3</strong> key.
+        Get one free at
+        <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a>
+        (enable "YouTube Data API v3", then create an API key).
+        The key is stored only in your browser's localStorage.
+      </p>
+      <input type="text" id="apiKeyInput" class="modal-input" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+      <p class="modal-text muted">
+        No key? The app runs in <strong>demo mode</strong> with sample videos — playback still works.
+      </p>
+      <div class="modal-actions">
+        <button class="modal-btn ghost" id="clearKeyBtn">Clear key</button>
+        <button class="modal-btn ghost" id="closeModalBtn">Cancel</button>
+        <button class="modal-btn primary" id="saveKeyBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
