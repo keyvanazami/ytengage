@@ -542,6 +542,11 @@ function startPreWatchQuiz(video) {
 
 async function buildQuestionFromTranscript(video, token) {
   const tRes = await fetch(`/api/transcript?v=${encodeURIComponent(video.id)}`);
+  if (tRes.status === 404) {
+    // Static file server (e.g. `npx serve`) — the API only exists in server.py
+    dismissQuiz("Quiz needs the app served by: python3 server.py");
+    return undefined; // already handled
+  }
   const transcript = await tRes.json().catch(() => ({}));
   if (!tRes.ok) {
     console.warn("transcript fetch failed:", transcript.error);
