@@ -90,8 +90,13 @@ def _http_raw(url, payload=None, headers=None, timeout=15):
     req = urllib.request.Request(url, data=data, headers=headers or {})
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        # Include the response body — API errors explain themselves there
+        detail = exc.read().decode("utf-8", errors="replace")[:400]
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
 
 
 def _walk(node, key):
@@ -127,14 +132,55 @@ def _fetch_watch_page(video_id):
     )
 
 
-def _call_get_transcript(params, api_key, client_version):
-    """POST to the endpoint the YouTube web UI's transcript panel uses."""
+def _extract_json_object(text, anchor):
+    """Extract the balanced {...} JSON object that follows `anchor` in text."""
+    idx = text.find(anchor) if text else -1
+    if idx == -1:
+        return None
+    start = text.find("{", idx + len(anchor))
+    if start == -1:
+        return None
+    depth, in_str, esc = 0, False, False
+    for i in range(start, min(len(text), start + 500000)):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except Exception:
+                        return None
+    return None
+
+
+def _call_get_transcript(params, api_key, context, video_id):
+    """POST to the endpoint the YouTube web UI's transcript panel uses,
+    mirroring its request as closely as possible (page context incl.
+    visitorData, plus the Origin/Referer/visitor headers)."""
     url = INNERTUBE_TRANSCRIPT_URL + (f"&key={api_key}" if api_key else "")
-    context = {
-        "client": {"clientName": "WEB", "clientVersion": client_version, "hl": "en"}
-    }
+    headers = dict(WEB_HEADERS)
+    headers["Origin"] = "https://www.youtube.com"
+    headers["Referer"] = f"https://www.youtube.com/watch?v={video_id}"
+    client = (context or {}).get("client", {})
+    if client.get("visitorData"):
+        headers["X-Goog-Visitor-Id"] = client["visitorData"]
+    if client.get("clientVersion"):
+        headers["X-Youtube-Client-Name"] = "1"
+        headers["X-Youtube-Client-Version"] = client["clientVersion"]
     data = _http_json(
-        url, payload={"context": context, "params": params}, headers=WEB_HEADERS
+        url, payload={"context": context, "params": params}, headers=headers
     )
     segments = []
     for seg_list in _walk(data, "transcriptSegmentListRenderer"):
@@ -242,6 +288,17 @@ def fetch_transcript(video_id):
         _extract(r'"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"', html)
         or "2.20250101.00.00"
     )
+    # The page's own InnerTube context (incl. visitorData) — using it verbatim
+    # mirrors the web UI's request; a minimal context can be rejected with 400.
+    context = _extract_json_object(html, '"INNERTUBE_CONTEXT":')
+    if not context or "client" not in context:
+        context = {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": client_version,
+                "hl": "en",
+            }
+        }
     page_params = _extract(r'"getTranscriptEndpoint":\s*\{"params":"([^"]+)"', html)
     if page_params:
         page_params = _json_unescape(page_params)
@@ -249,11 +306,11 @@ def fetch_transcript(video_id):
     def via_page_params():
         if not page_params:
             raise RuntimeError("no getTranscriptEndpoint params on watch page")
-        return _call_get_transcript(page_params, api_key, client_version)
+        return _call_get_transcript(page_params, api_key, context, video_id)
 
     def via_synthetic_params():
         return _call_get_transcript(
-            _synthetic_transcript_params(video_id), api_key, client_version
+            _synthetic_transcript_params(video_id), api_key, context, video_id
         )
 
     def via_page_captions():
