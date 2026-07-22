@@ -1,0 +1,7 @@
+# Secrets — never commit API keys
+.env
+
+# Editor / OS noise
+.DS_Store
+*.pyc
+__pycache__/

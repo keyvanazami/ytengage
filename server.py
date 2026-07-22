@@ -9,11 +9,12 @@ Serves the static app and adds two JSON endpoints used by the
         body: {"title": str, "transcript": str}
 
 Transcripts come from YouTube's InnerTube player API (no API key needed).
-Question generation uses the Gemini API when GEMINI_API_KEY is set in the
-environment; otherwise it falls back to a transcript-based cloze question so
-the app works with zero setup. No third-party packages required.
+Question generation uses the Gemini API when GEMINI_API_KEY is set — either
+in the environment or in a .env file next to this script (see .env.example);
+otherwise it falls back to a transcript-based cloze question so the app works
+with zero setup. No third-party packages required.
 
-Run:  GEMINI_API_KEY=... python3 server.py [port]     (default port 8000)
+Run:  python3 server.py [port]     (default port 8000)
 """
 
 import json
@@ -27,6 +28,30 @@ from collections import Counter
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+
+
+def load_dotenv(path=None):
+    """Minimal .env loader (KEY=value lines, # comments, optional quotes).
+
+    Real environment variables take precedence over .env entries.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Transcript fetching (YouTube InnerTube player API)

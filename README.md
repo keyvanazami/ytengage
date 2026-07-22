@@ -10,10 +10,9 @@ and **video playback**, plus a starter set of local engagement interactions
 No build step and no packages to install — Python 3 standard library only.
 
 ```bash
-# Full experience (transcripts + AI quiz questions):
-GEMINI_API_KEY=your-key python3 server.py
+# One-time: put your Gemini key in a .env file (gitignored)
+cp .env.example .env    # then edit .env and paste your key
 
-# Or without a Gemini key (heuristic quiz questions instead):
 python3 server.py
 ```
 
@@ -28,11 +27,12 @@ its built-in questions.
 
 ### Gemini API key (for AI-written questions)
 
-Set `GEMINI_API_KEY` in the environment when starting `server.py` — never
-commit it. Get one free at [Google AI Studio](https://aistudio.google.com/apikey).
-Optionally pick a model with `GEMINI_MODEL` (default: `gemini-2.5-flash`).
-Without a key, the server builds a fill-in-the-blank question from the
-transcript instead.
+`server.py` reads `GEMINI_API_KEY` from a `.env` file in the repo root (see
+`.env.example`) or from the environment — environment variables win if both
+are set. `.env` is gitignored so the key can't be committed. Get one free at
+[Google AI Studio](https://aistudio.google.com/apikey). Optionally pick a
+model with `GEMINI_MODEL` (default: `gemini-2.5-flash`). Without a key, the
+server builds a fill-in-the-blank question from the transcript instead.
 
 ## Search: demo mode vs. real YouTube search
 
